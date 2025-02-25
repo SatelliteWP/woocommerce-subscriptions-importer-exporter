@@ -373,7 +373,9 @@ class WCS_Importer {
 							update_user_meta( $user_id, $meta_key, $data[ $meta_key ] );
 						}
 					}
-
+					// Subscription must be in pending status to auto-calculate next_payment_date, but must be a non-active status in order to apply cancelled_date and end_date.
+					$create_status = in_array( $status, wcs_get_subscription_ended_statuses() ) ? $status : 'pending';
+					
 					$subscription = wcs_create_subscription( array(
 							'customer_id'      => $user_id,
 							'start_date'       => $dates_to_update['start'],
@@ -382,7 +384,7 @@ class WCS_Importer {
 							'created_via'      => 'importer',
 							'customer_note'    => ( ! empty( $data[ self::$fields['customer_note'] ] ) ) ? $data[ self::$fields['customer_note'] ] : '',
 							'currency'         => ( ! empty( $data[ self::$fields['order_currency'] ] ) ) ? $data[ self::$fields['order_currency'] ] : '',
-							'status'           => in_array( $status, wcs_get_subscription_ended_statuses() ) ? $status : 'pending', // Subscription must be in pending status to auto-calculate next_payment_date, but must be a non-active status in order to apply cancelled_date and end_date.
+							'status'           => $create_status,
 						)
 					);
 
@@ -504,7 +506,9 @@ class WCS_Importer {
 					add_filter( 'woocommerce_can_subscription_be_updated_to_pending-cancel', '__return_true' );
 
 					// Update status again for active subscriptions.
-					$subscription->update_status( $status );
+					if ( 'pending' == $create_status ) {
+						$subscription->update_status( $status );
+					}
 
 					remove_filter( 'woocommerce_can_subscription_be_updated_to_cancelled', '__return_true' );
 					remove_filter( 'woocommerce_can_subscription_be_updated_to_pending-cancel', '__return_true' );
