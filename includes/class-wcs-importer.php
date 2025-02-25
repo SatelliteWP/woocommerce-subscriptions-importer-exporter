@@ -78,6 +78,9 @@ class WCS_Importer {
 	 * @param array $data
 	 */
 	public static function import_data( $data ) {
+		if ( ! defined( 'WP_CACHE' ) define( 'WP_CACHE', false );
+		wp_suspend_cache_addition(true);
+		
 		$file_path = addslashes( $data['file_path'] );
 
 		self::$row_number      = $data['starting_row'];
