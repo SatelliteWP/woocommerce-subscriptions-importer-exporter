@@ -10,6 +10,7 @@
 class WCS_Importer {
 
 	public static $results = array();
+	public static $times = array();
 
 	/* The current row number of CSV */
 	public static $row_number;
@@ -79,7 +80,7 @@ class WCS_Importer {
 	 */
 	public static function import_data( $data ) {
 		if ( ! defined( 'WP_CACHE' ) ) define( 'WP_CACHE', false );
-		wp_suspend_cache_addition(true);
+		wp_suspend_cache_addition( true );
 		
 		$file_path = addslashes( $data['file_path'] );
 
@@ -186,6 +187,7 @@ class WCS_Importer {
 					fseek( $file_handle, $start_position );
 				}
 
+				$times = [];
 				while ( ( $csv_row = fgetcsv( $file_handle, 0 ) ) !== false ) {
 
 					foreach ( $column_headers as $key => $header ) {
@@ -195,8 +197,13 @@ class WCS_Importer {
 						$data[ $header ] = ( isset( $csv_row[ $key ] ) ) ? trim( wcsi_format_data( $csv_row[ $key ], $file_encoding ) ) : '';
 					}
 
+					$start_time = microtime( true );
+					
 					self::$row_number++;
 					self::import_subscription( $data );
+
+					$stop_time = microtime( true );
+					$times[self::$row_number] = $stop_time - $start_time;
 
 					if ( ftell( $file_handle ) >= $end_position ) {
 						break;
@@ -217,6 +224,9 @@ class WCS_Importer {
 	 */
 	public static function import_subscription( $data ) {
 		global $wpdb;
+
+		$times = [];
+		$times['p1_1'] = microtime( true );
 
 		self::$row  = $data;
 		$set_manual = $requires_manual_renewal = false;
@@ -365,8 +375,12 @@ class WCS_Importer {
 			}
 		}
 
+		$times['p1_2'] = microtime( true );
+		$times['p1'] = $times['p1_2'] - $times['p1_1'];
+
 		if ( empty( $result['error'] ) || self::$test_mode ) {
 			try {
+				$times['p2_1'] = microtime( true );
 				if ( ! self::$test_mode ) {
 					$wpdb->query( 'START TRANSACTION' );
 
@@ -387,7 +401,7 @@ class WCS_Importer {
 							'created_via'      => 'importer',
 							'customer_note'    => ( ! empty( $data[ self::$fields['customer_note'] ] ) ) ? $data[ self::$fields['customer_note'] ] : '',
 							'currency'         => ( ! empty( $data[ self::$fields['order_currency'] ] ) ) ? $data[ self::$fields['order_currency'] ] : '',
-							'status'           => $create_status,
+							'status'           => $status, //$create_status,
 						)
 					);
 
@@ -441,7 +455,10 @@ class WCS_Importer {
 					$subscription = null;
 					$subscription_id = 0;
 				}
+				$times['p2_2'] = microtime( true );
+				$times['p2'] = $times['p2_2'] - $times['p2_1'];
 
+				$times['p3_1'] = microtime( true );
 				if ( $set_manual ) {
 					$result['warning'][] = esc_html__( 'No payment method was given in CSV and so the subscription has been set to manual renewal.', 'wcs-import-export' );
 				} else if ( $requires_manual_renewal ) {
@@ -504,7 +521,12 @@ class WCS_Importer {
 					}
 				}
 
+				$times['p3_2'] = microtime( true );
+				$times['p3'] = $times['p3_2'] - $times['p3_1'];
+
+				$times['p4_1'] = microtime( true );
 				if ( ! self::$test_mode ) {
+					/*
 					add_filter( 'woocommerce_can_subscription_be_updated_to_cancelled', '__return_true' );
 					add_filter( 'woocommerce_can_subscription_be_updated_to_pending-cancel', '__return_true' );
 
@@ -521,11 +543,14 @@ class WCS_Importer {
 							self::maybe_add_memberships( $user_id, $subscription->get_id(), $product_id );
 						}
 					}
-
-					$subscription->save();
+					*/
+					$subscription->save();					
 				}
 
 				$wpdb->query( 'COMMIT' );
+
+				$times['p4_2'] = microtime( true );
+				$times['p4'] = $times['p4_2'] - $times['p4_1'];
 
 			} catch ( Exception $e ) {
 				$wpdb->query( 'ROLLBACK' );
@@ -533,6 +558,7 @@ class WCS_Importer {
 			}
 		}
 
+		$times['p6_1'] = microtime( true );
 		if ( ! self::$test_mode ) {
 
 			if ( empty( $result['error'] ) ) {
@@ -554,6 +580,16 @@ class WCS_Importer {
 			 */
 			do_action( 'woocommerce_subscription_imported_via_csv', $subscription, $result, $data );
 		}
+		$times['p6_2'] = microtime( true );
+		$times['p6'] = $times['p6_2'] - $times['p6_1'];
+
+		unset( $times['p1_1'], $times['p1_2'], 
+			$times['p2_1'], $times['p2_2'], 
+			$times['p3_1'], $times['p3_2'], 
+			$times['p4_1'], $times['p4_2'],
+			$times['p5_1'], $times['p5_2'],
+			$times['p6_1'], $times['p6_2'],);
+		array_push( self::$times, $times );
 
 		array_push( self::$results, $result );
 	}
